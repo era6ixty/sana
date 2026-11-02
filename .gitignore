@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-ssr
+.vite
+.vercel
+.env
+.env.*
+!.env.example
+.DS_Store
+*.local
+*.log
+__pycache__/
+*.pyc
+public/deck.json
