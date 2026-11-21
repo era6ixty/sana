@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "build:public": "tsc --noEmit && vite build && rm -f dist/deck.json",
+    "build:pages": "tsc --noEmit && vite build --base=/sana/ && rm -f dist/deck.json && cp dist/index.html dist/404.html && touch dist/.nojekyll",
     "preview": "vite preview",
     "convert": "python3 tools/convert.py"
   },
