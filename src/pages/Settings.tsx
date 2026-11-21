@@ -1,7 +1,16 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { AlertTriangle, Database, Download, Info, RefreshCw, RotateCcw, Upload } from 'lucide-react'
-import { db, exportData, importData, reseed, resetProgress } from '@/db'
+import {
+  AlertTriangle,
+  BookOpen,
+  Database,
+  Download,
+  Info,
+  RefreshCw,
+  RotateCcw,
+  Upload,
+} from 'lucide-react'
+import { db, exportData, importData, importDeckJson, reseed, resetProgress } from '@/db'
 import { AppHeader, BottomNav, Page } from '@/components/Layout'
 import { Button, Card, Spinner } from '@/components/ui'
 import { cardCountLabel, downloadJson, plural } from '@/lib/utils'
@@ -10,8 +19,25 @@ type Status = { kind: 'ok' | 'error'; text: string } | null
 
 export default function Settings() {
   const fileRef = useRef<HTMLInputElement>(null)
+  const deckRef = useRef<HTMLInputElement>(null)
   const [status, setStatus] = useState<Status>(null)
   const [working, setWorking] = useState<string | null>(null)
+  const [deckBundled, setDeckBundled] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`${import.meta.env.BASE_URL}deck.json`, { method: 'HEAD', cache: 'no-store' })
+      .then((res) => {
+        const type = res.headers.get('content-type') ?? ''
+        if (!cancelled) setDeckBundled(res.ok && type.includes('json'))
+      })
+      .catch(() => {
+        if (!cancelled) setDeckBundled(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const info = useLiveQuery(async () => {
     const [decks, allCards, reviews, book, source] = await Promise.all([
@@ -71,6 +97,29 @@ export default function Settings() {
     if (fileRef.current) fileRef.current.value = ''
   }
 
+  const handleDeckUpload = async (file: File) => {
+    const confirmed = window.confirm(
+      'Загрузить новую книгу? Текущие карточки, правки и весь прогресс будут заменены.',
+    )
+    if (!confirmed) {
+      if (deckRef.current) deckRef.current.value = ''
+      return
+    }
+    await run(
+      'deck',
+      async () => {
+        const text = await file.text()
+        const parsed = JSON.parse(text)
+        if (parsed?.app === 'sana') {
+          throw new Error('Это резервная копия Sana. Загрузите её через «Импорт».')
+        }
+        await importDeckJson(parsed)
+      },
+      'Новая книга загружена. Прогресс начат заново.',
+    )
+    if (deckRef.current) deckRef.current.value = ''
+  }
+
   const handleReset = () => {
     if (!window.confirm('Сбросить весь прогресс? Карточки останутся, оценки и повторения исчезнут.')) {
       return
@@ -126,11 +175,9 @@ export default function Settings() {
               <p className="text-[11px] text-slate-400">в {info.decks.length} разделах</p>
             </Card>
             <Card className="p-4">
-              <p className="text-[11px] uppercase tracking-wide text-slate-400">Повторения</p>
+              <p className="text-[11px] uppercase tracking-wide text-slate-400">Оценки</p>
               <p className="mt-1 text-2xl font-bold">{info.reviews}</p>
-              <p className="text-[11px] text-slate-400">
-                Сохранено оценок: {info.reviews}
-              </p>
+              <p className="text-[11px] text-slate-400">за всё время</p>
             </Card>
             <Card className="p-4">
               <p className="text-[11px] uppercase tracking-wide text-slate-400">Изучено</p>
@@ -143,6 +190,57 @@ export default function Settings() {
               <p className="text-[11px] text-slate-400">пометок конвертера</p>
             </Card>
           </div>
+        </section>
+
+        <section>
+          <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Книга
+          </h2>
+          <Card className="divide-y divide-slate-100">
+            <div className="flex items-center gap-3 p-4">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                <BookOpen size={17} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium">Новая книга</p>
+                <p className="text-[11px] text-slate-400">
+                  deck.json из конвертера — заменит колоду и прогресс
+                </p>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => deckRef.current?.click()}
+                disabled={working !== null}
+              >
+                {working === 'deck' ? '…' : 'Загрузить'}
+              </Button>
+              <input
+                ref={deckRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) void handleDeckUpload(file)
+                }}
+              />
+            </div>
+            {deckBundled && (
+              <div className="flex items-center gap-3 p-4">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
+                  <RefreshCw size={17} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">Пересобрать из deck.json</p>
+                  <p className="text-[11px] text-slate-400">Удалит правки и прогресс</p>
+                </div>
+                <Button variant="danger" size="sm" onClick={handleReseed} disabled={working !== null}>
+                  {working === 'reseed' ? '…' : 'Собрать'}
+                </Button>
+              </div>
+            )}
+          </Card>
         </section>
 
         <section>
@@ -217,18 +315,6 @@ export default function Settings() {
                 disabled={working !== null}
               >
                 {working === 'reset' ? '…' : 'Сбросить'}
-              </Button>
-            </div>
-            <div className="flex items-center gap-3 p-4">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
-                <RefreshCw size={17} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">Пересобрать из deck.json</p>
-                <p className="text-[11px] text-slate-400">Удалит правки и прогресс</p>
-              </div>
-              <Button variant="danger" size="sm" onClick={handleReseed} disabled={working !== null}>
-                {working === 'reseed' ? '…' : 'Собрать'}
               </Button>
             </div>
           </Card>

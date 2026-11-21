@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { ensureSeeded } from './db'
+import { MissingDeckError, ensureSeeded } from './db'
+import { DeckOnboarding } from './components/DeckOnboarding'
 import Home from './pages/Home'
 import Deck from './pages/Deck'
 import Study from './pages/Study'
@@ -17,7 +18,7 @@ function FullScreen({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [status, setStatus] = useState<'loading' | 'ready' | 'needs-deck' | 'error'>('loading')
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
 
@@ -30,6 +31,10 @@ export default function App() {
       })
       .catch((reason) => {
         if (cancelled) return
+        if (reason instanceof MissingDeckError) {
+          setStatus('needs-deck')
+          return
+        }
         setError(reason instanceof Error ? reason.message : 'Не удалось открыть базу карточек.')
         setStatus('error')
       })
@@ -49,6 +54,15 @@ export default function App() {
           <div className="h-full w-1/2 animate-pulse rounded-full bg-indigo-500" />
         </div>
       </FullScreen>
+    )
+  }
+
+  if (status === 'needs-deck') {
+    return (
+      <DeckOnboarding
+        onLoaded={() => setStatus('ready')}
+        onRetry={() => setAttempt((value) => value + 1)}
+      />
     )
   }
 
